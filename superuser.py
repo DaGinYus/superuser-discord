@@ -68,7 +68,10 @@ class Commands(object):
         self._ctx = ctx
         
     async def userdel(self, user=None, **kwargs):
-        usr = await commands.MemberConverter().convert(self._ctx, user)
+        if user:
+            usr = await commands.MemberConverter().convert(self._ctx, user)
+        else:
+            raise discord.DiscordException("username could not be converted")
         uname = str(usr)
         print("Kicking " + uname)
         await discord.Member.kick(usr)
@@ -78,7 +81,10 @@ class Commands(object):
             await self._ctx.send(uname + " has been kicked!")
         
     async def adduser(self, user=None, **kwargs):
-        usr = await commands.UserConverter().convert(self._ctx, user)
+        if user:
+            usr = await commands.UserConverter().convert(self._ctx, user)
+        else:
+            raise discord.DiscordException("username could not be converted")
         uname = str(usr)
         print("Sending invite to " + uname)
         channel = self._ctx.guild.system_channel
