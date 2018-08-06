@@ -31,38 +31,31 @@ from discord.ext import commands
 class DataHandler:
 
     def __init__(self):
-        self.CONFIG_PATH = "config.json"
-        self.ROLES_PATH = "roles.json"
+        self.CONFIG = "config.json"
+        self.config_keys = []
 
-    def read_config(self):
+    def read(self):
         try:
-            with open(self.CONFIG_PATH) as infile:
+            with open(self.CONFIG) as infile:
                 data = json.load(infile)
                 for item in data:
                     setattr(self, item, data[item])
-            print(self.CONFIG_PATH + " read successfully")
+                    self.config_keys.append(item)
+            print(self.CONFIG + " read successfully")
             return True
         except IOError as e:
             print("IOError: could not open file: {}".format(e))
         except json.JSONDecodeError as e:
-            print("JSONDecodeError: invalid JSON file: {}".format(e))
+            print("JSONDecodeError: invalid JSON format: {}".format(e))
 
-    def read_roles(self):
+    def write(self):
         try:
-            with open(self.ROLES_PATH) as infile:
-                self.roles = json.load(infile)
-            print(self.ROLES_PATH + " read successfully")
-            return self.roles
-        except IOError as e:
-            print("IOError: could not open file: {}".format(e))
-        except json.JSONDecodeError as e:
-            print("JSONDecodeError: invalid JSON file: {}".format(e))
-
-    def write(self, path, content):
-        try:
-            with open(path, "w") as outfile:
-                data = json.dump(content, outfile, indent=4)
-            print(path + " written successfully")
+            out = {}
+            for item in self.config_keys:
+                out[item] = getattr(self, item)
+            with open(self.CONFIG, "w") as outfile:
+                json.dump(out, outfile, indent=4)
+            print(self.CONFIG + " written successfully")
         except IOError as e:
             print("Error: could not open file: {}".format(e))
         except json.JSONDecodeError as e:
@@ -111,17 +104,19 @@ class Commands(object):
         if not user:
             raise ValueError("invalid username format")
         async def save():
+            usr_roles = usr.roles
             role_list = []
             for role in usr_roles:
                 role_list.append(str(role.id))
             data.roles[uname] = role_list
-            data.write(data.ROLES_PATH, data.roles)
+            data.write()
             await self._ctx.send("successfully saved roles")
 
         async def restore():
+            data.read()
+            saved_roles = data.roles
             if uname in saved_roles:
                 for role in saved_roles[uname]:
-                    print(role)
                     converted_role = await commands.RoleConverter().convert(self._ctx, role)
                     if converted_role is not self._ctx.guild.default_role:
                         await usr.add_roles(converted_role)
@@ -150,18 +145,27 @@ class Commands(object):
 
         usr = await commands.MemberConverter().convert(self._ctx, user)
         uname = str(usr)
-        usr_roles = usr.roles
-        saved_roles = data.read_roles()
+
         if flag:
             dispatch = {"-s": save, "-r": restore, "-a": assign}
             await dispatch[flag]()
         await show_roles()
 
-    async def defaults(self):
-        ...
+    async def defaults(self, data=None, mode=None, value=None, option=None, **kwargs):
+        DESCRIPTIONS = {"start_cache": ("BOOL", "Save roles on bot startup (specify true/false)")}
+        
+        if mode == "read":
+            msg = discord.Embed(title= "superuser settings:", color=0x02dda3)
+            for setting in data.settings:
+                msg.add_field(name=setting, value=DESCRIPTIONS[setting][1], inline=False)
+            await self._ctx.send(embed=msg)
+            
+        elif mode == "write":
+            
+            
 
     async def help(self, **kwargs):
-        help_msg = {"userdel": ("(user)", "Kicks user from server"),
+        HELP_MSG = {"userdel": ("(user)", "Kicks user from server"),
                     "adduser": ("(user)", "Sends invite to user"),
                     "id": ("[-r][-s][-a] (user)", "Shows the roles of a user\n"
                            "[-r] will assign them their last saved roles\n"
@@ -171,19 +175,19 @@ class Commands(object):
                     "defaults": ("read", "Shows available settings"),
                     "help": ("", "Shows this help menu")}
         msg = discord.Embed(title="superuser help:", color=0x02dda3)
-        for command in help_msg:
-            msg.add_field(name=command + " " + help_msg[command][0], value=help_msg[command][1], inline=False)
+        for command in HELP_MSG:
+            msg.add_field(name=command + " " + HELP_MSG[command][0], value=HELP_MSG[command][1], inline=False)
         await self._ctx.send(embed=msg)
 
     def parse(self, arg):
-        tokens = {"user": None, "flag": None, "rw": None,"option": None, "value": None}
+        tokens = {"user": None, "flag": None, "mode": None,"option": None, "value": None}
         rules = re.compile(r"""
-            (?P<cmd>^\b[a-z]+\b)                                 # '...' (first word only) ----- command
-            (?:\s(?P<user>(?:\w+\#\d+)|(?:<(?:@|@!)[0-9]+>))     # '@...' (end word only) ------ user
-            |\s(?P<flag>-[a-z])                                  # '-.' ------------------------ flag
-            |\s(?P<rw>\bread\b|\bwrite\b)                        # 'read' or 'write' ----------- read or write option
-            |\s(?P<option>\b\w+\b(?!$))                          # '...' (not last word) ------- option to set
-            |\s(?P<value>(?:\b\w+\b$)|(?:["\w ]+$))|(?:))+       # '...' (end word) ------------ value for option
+            (?P<cmd>^\b[a-z]+\b)                                 # '...' (first word only) ---- command
+            (?:\s(?P<user>(?:\w+\#\d+)|(?:<(?:@|@!)[0-9]+>))     # '@...' (end word only) ----- user
+            |\s(?P<flag>-[a-z])                                  # '-.' ----------------------- flag
+            |\s(?P<mode>\bread\b|\bwrite\b)                      # 'read' or 'write' ---------- r/w mode
+            |\s(?P<option>\b\w+\b(?!$))                          # '...' (not last word) ------ option to set
+            |\s(?P<value>(?:\b\w+\b$)|(?:["\w ]+$))|(?:))+       # '...' (end word) ----------- value for option
             """, re.VERBOSE)
         if rules.search(arg):
             parsedarg = rules.search(arg)
@@ -219,7 +223,7 @@ async def sudoError(ctx, err):
 bot = commands.Bot(command_prefix="$")
 
 bot_data = DataHandler()
-if bot_data.read_config() and bot_data.read_roles():
+if bot_data.read():
     @bot.event
     async def on_ready():
         print("\nLogged in as:")
